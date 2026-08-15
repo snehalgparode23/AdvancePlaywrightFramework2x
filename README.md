@@ -28,10 +28,13 @@ A production-ready, advanced test automation framework built on [Playwright](htt
 - **JSONPath Querying** — extract and assert on nested JSON using `jsonpath-plus`
 - **Centralized Configuration** — environment-driven `BASE_URL` resolution (QA, staging, prod, dev, API)
 - **Structured Logging** — Winston-based logging with configurable log levels
+- **Custom TTA Reporter** — real-time HTML report with test steps, screenshots, videos, traces, console logs, and AI verdict/flaky tabs
+- **AI Root-Cause Analysis** — heuristic RCA agent that classifies failed tests and suggests fixes
+- **Flaky Test Analyzer** — diffs this build against the previous one to highlight flaky tests
 - **Allure Reporting** — rich, interactive test reports via Allure
 - **HTML & List Reporters** — built-in Playwright reports out of the box
 - **Parallel Execution** — fully parallel test execution across workers
-- **Retries & Tracing** — automatic retries on CI and trace capture on first retry
+- **Retries & Tracing** — automatic retries on CI and trace capture on retry
 - **CI/CD Ready** — GitHub Actions workflow for automated test runs
 - **Priority-Based Test Selection** — run tests by priority tags (`@p1`, `@p2`, `@p3`)
 
@@ -62,13 +65,32 @@ AdvancePlaywrightFramework2x/
 ├── docs/                           # Project documentation
 ├── rules/                          # Coding rules & conventions
 ├── src/
+│   ├── ai/                         # AI-powered analysis agents
+│   │   ├── agents/
+│   │   │   ├── rcaAgent.ts         # Root-cause analysis for failed tests
+│   │   │   └── flakyAnalyzer.ts    # Build-vs-build flaky test detection
+│   │   └── config/
+│   │       └── providers.ts        # LLM provider key detection
 │   ├── api/                        # API request helpers & endpoint definitions
 │   ├── config/                     # Centralized configuration & environment handling
 │   ├── fixtures/                   # Custom Playwright fixtures (test hooks, auth state)
 │   ├── pages/                      # Page Object classes (UI automation)
+│   │   ├── BasePage.ts             # Base class: navigation, logging, element helpers
+│   │   ├── LoginPage.ts            # TTACart login screen
+│   │   ├── InventoryPage.ts        # Product listing screen
+│   │   ├── ItemDetailPage.ts       # Single product detail screen
+│   │   ├── CartPage.ts             # Shopping cart screen
+│   │   ├── CheckoutStepOnePage.ts  # Checkout information form
+│   │   ├── CheckoutStepTwoPage.ts  # Checkout overview screen
+│   │   └── CheckoutCompletePage.ts # Order confirmation screen
 │   ├── testdata/                   # Test data files (CSV, Excel, JSON, YAML)
 │   ├── tests/                      # Test specs (*.spec.ts)
-│   └── utils/                      # Reusable utilities (logger, JSON helpers, etc.)
+│   │   └── login.spec.ts           # TTACart login flow (@p0)
+│   └── utils/                      # Reusable utilities
+│       ├── CustomReporter.ts       # Real-time TTA HTML reporter
+│       ├── DataGenerator.ts        # Test data factories
+│       ├── UtilElementLocator.ts   # Element interaction helpers
+│       └── logger.ts               # Winston logger (console + file)
 ├── .env                            # Environment variables (not committed)
 ├── .gitignore                      # Git ignore rules
 ├── package.json                    # Project manifest & scripts
@@ -194,15 +216,28 @@ test('login with valid credentials @p1', async ({ page }) => {
 | Retries (CI)          | 2 retries on CI, 0 locally                   |
 | Screenshots           | On failure only                              |
 | Video                 | Recorded for every test                      |
-| Trace                 | On first retry                               |
-| Reporters             | HTML + List (+ Allure when configured)       |
+| Trace                 | Recorded for every test                      |
+| Reporters             | HTML + List + Custom TTA Reporter           |
 | Default project       | Chromium (Desktop Chrome)                    |
 
 ## Test Reports
 
+### Custom TTA Reporter
+
+The framework ships a custom HTML reporter (`src/utils/CustomReporter.ts`) that generates a real-time, self-refreshing report into `tta-report/`:
+
+- **Live summary** — total / passed / failed / skipped, pass rate, duration, environment
+- **Per-test details** — collapsible sections for errors, call stacks, step-by-step console logs, screenshots, videos, and traces
+- **AI Verdict tab** — root-cause analysis verdicts for failed tests (severity, priority, cause, fixes)
+- **AI Data tab** — AI-generated test data captured via `ai-data` attachments
+- **Flaky tab** — build-vs-build comparison highlighting flaky and consistently failing tests
+- **Report history** — `tta-report/history.html` lists every generated run, with `index.html` redirecting to the latest
+
+> The report artifacts are gitignored (`/tta-report/`). Open `tta-report/index.html` after a run.
+
 ### HTML Report
 
-After a run, open the interactive HTML report:
+After a run, open the interactive Playwright HTML report:
 
 ```bash
 npx playwright show-report
@@ -222,6 +257,14 @@ allure generate ./allure-results --clean -o ./allure-report
 # Serve the report locally
 allure open ./allure-report
 ```
+
+### AI Features
+
+The custom reporter's AI tabs are driven by `src/ai/`:
+
+- **`rcaAgent.ts`** — classifies failed tests into severity/priority buckets and suggests fixes (heuristic, works offline)
+- **`flakyAnalyzer.ts`** — diffs per-test statuses against the previous run stored in `reports/runs/` and reports flaky tests
+- **`providers.ts`** — checks for LLM API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.); when a key is set, analyzers can be extended to call a model
 
 ## CI/CD with GitHub Actions
 

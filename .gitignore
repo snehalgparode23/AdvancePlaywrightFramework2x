@@ -8,3 +8,8 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Generated artifacts
+/logs/
+/reports/
+/tta-report/
