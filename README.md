@@ -73,7 +73,10 @@ AdvancePlaywrightFramework2x/
 │   │       └── providers.ts        # LLM provider key detection
 │   ├── api/                        # API request helpers & endpoint definitions
 │   ├── config/                     # Centralized configuration & environment handling
+│   │   ├── env.ts                  # dotenv helpers: requireEnv / envOr / assertEnv
+│   │   └── credentials.ts          # Credentials resolved from .env
 │   ├── fixtures/                   # Custom Playwright fixtures (test hooks, auth state)
+│   │   └── test-base.ts            # Extended `test` with page-object fixtures
 │   ├── pages/                      # Page Object classes (UI automation)
 │   │   ├── BasePage.ts             # Base class: navigation, logging, element helpers
 │   │   ├── LoginPage.ts            # TTACart login screen
@@ -84,14 +87,28 @@ AdvancePlaywrightFramework2x/
 │   │   ├── CheckoutStepTwoPage.ts  # Checkout overview screen
 │   │   └── CheckoutCompletePage.ts # Order confirmation screen
 │   ├── testdata/                   # Test data files (CSV, Excel, JSON, YAML)
+│   │   └── logintestdata.json      # Login test data
 │   ├── tests/                      # Test specs (*.spec.ts)
-│   │   └── login.spec.ts           # TTACart login flow (@p0)
+│   │   ├── e2e/                    # End-to-end checkout specs
+│   │   │   ├── e2e-checkout.spec.ts           # Checkout flow (@P0)
+│   │   │   ├── e2e-checkout-env.spec.ts       # .env-driven checkout (@P0)
+│   │   │   └── e2e-checkout_new_fixture.spec.ts
+│   │   └── login/
+│   │       └── login.spec.ts       # TTACart login flow (@p0)
 │   └── utils/                      # Reusable utilities
 │       ├── CustomReporter.ts       # Real-time TTA HTML reporter
 │       ├── DataGenerator.ts        # Test data factories
 │       ├── UtilElementLocator.ts   # Element interaction helpers
+│       ├── visualStep.ts           # Visual step helper for reports
 │       └── logger.ts               # Winston logger (console + file)
+├── .claude/                        # Claude Code skills & commands
+│   ├── commands/
+│   │   └── gogo.md
+│   └── skills/                     # 12 Playwright-focused skills (page objects, fixtures,
+│                                   #   flaky debugging, network mocking, visual regression, ...)
+├── learnings/                      # Framework learnings & patterns
 ├── .env                            # Environment variables (not committed)
+├── .env.example                    # Committed example env file
 ├── .gitignore                      # Git ignore rules
 ├── package.json                    # Project manifest & scripts
 ├── playwright.config.ts            # Playwright configuration
@@ -145,6 +162,13 @@ Copy the values from `.env` (or create your own) and set the environment you wan
 | `TEST_AUTHOR`   | Test author name for reporting                          | *(unset)*                      |
 | `USERNAME`      | Username for authenticated flows                        | `admin`                        |
 | `PASSWORD`      | Password for authenticated flows                        | `ADMIN123`                     |
+| `ATTACH_SCREENSHOTS` | Attach screenshots on failure (`true`/`false`)     | `false`                        |
+| `STANDARD_USER` | Standard user for checkout specs                        | `standard_user`                |
+| `TTA_SECRET`    | Password for the standard user                          | `tta_secret`                   |
+| `CHECKOUT_ITEM_ID` | Inventory item to add during checkout              | `test-allthethings-tshirt-red` |
+| `CHECKOUT_FIRST_NAME` | Checkout first name (falls back to Faker)       | *(unset)*                      |
+| `CHECKOUT_LAST_NAME`  | Checkout last name (falls back to Faker)        | *(unset)*                      |
+| `CHECKOUT_POSTAL_CODE`| Checkout postal code (falls back to Faker)      | *(unset)*                      |
 
 > **Note:** `.env` is gitignored and must never be committed to the repository.
 
@@ -167,7 +191,10 @@ The base URL is resolved in `playwright.config.ts`:
 npx playwright test
 
 # Run a single test file
-npx playwright test src/tests/example.spec.ts
+npx playwright test src/tests/e2e/e2e-checkout.spec.ts
+
+# Run the env-driven checkout spec (requires STANDARD_USER, TTA_SECRET, CHECKOUT_ITEM_ID in .env)
+npx playwright test src/tests/e2e/e2e-checkout-env.spec.ts
 
 # Run with headed browser (watch the test live)
 npx playwright test --headed
@@ -214,7 +241,8 @@ test('login with valid credentials @p1', async ({ page }) => {
 | Expect timeout        | 10 seconds                                   |
 | Parallel execution    | Fully parallel                               |
 | Retries (CI)          | 2 retries on CI, 0 locally                   |
-| Screenshots           | On failure only                              |
+| Headless              | `false` (headed by default)                  |
+| Screenshots           | On failure only (when `ATTACH_SCREENSHOTS=true`) |
 | Video                 | Recorded for every test                      |
 | Trace                 | Recorded for every test                      |
 | Reporters             | HTML + List + Custom TTA Reporter           |
