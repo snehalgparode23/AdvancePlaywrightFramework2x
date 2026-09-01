@@ -6,13 +6,14 @@
  * centralises all random data so tests stay deterministic-friendly (one
  * import) and read naturally.
  *
- * Faker v10 API notes (project is CommonJS):
- *   - `faker.internet.username()`          (lowercase `username()` is v9+; `userName()` is v8-only)
- *   - `faker.internet.password({length})`  (options-object form)
- *   - `faker.location.zipCode()`           (v8 renamed `address` -> `location`)
+ * Faker API notes:
+ *   - `faker.internet.username()`
+ *   - `faker.internet.password({ length })`
+ *   - `faker.location.zipCode()`
  */
 
 import { faker } from '@faker-js/faker';
+import { envOr } from '@config/env';
 
 export interface Credentials {
     username: string;
@@ -85,6 +86,16 @@ export class DataGenerator {
             firstName: DataGenerator.firstName(),
             lastName: DataGenerator.lastName(),
             postalCode: DataGenerator.postalCode(),
+        };
+    }
+
+    /** Checkout customer, `.env` first, Faker for any field left unset. */
+    static checkoutCustomerFromEnv(): CheckoutCustomer {
+        const generated = DataGenerator.checkoutCustomer();
+        return {
+            firstName: envOr('CHECKOUT_FIRST_NAME', generated.firstName),
+            lastName: envOr('CHECKOUT_LAST_NAME', generated.lastName),
+            postalCode: envOr('CHECKOUT_POSTAL_CODE', generated.postalCode),
         };
     }
 
