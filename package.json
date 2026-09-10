@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {},
+  "scripts": {
+    "test:ping": "playwright test src/tests/apisTests/01_restfulbooker_raw/01_basic_ping.spec.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
