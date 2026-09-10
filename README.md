@@ -11,6 +11,7 @@ A production-ready, advanced test automation framework built on [Playwright](htt
 - [Installation](#installation)
 - [Environment Configuration](#environment-configuration)
 - [Running Tests](#running-tests)
+- [API Testing](#api-testing)
 - [Test Reports](#test-reports)
 - [CI/CD with GitHub Actions](#cicd-with-github-actions)
 - [Dependencies Overview](#dependencies-overview)
@@ -21,10 +22,15 @@ A production-ready, advanced test automation framework built on [Playwright](htt
 
 - **TypeScript** — fully typed tests and helpers for better maintainability
 - **Page Object Model (POM)** — clean separation between test logic and page interactions
-- **API Testing** — REST API test support via Playwright's `request` context
+- **API Testing** — layered REST API testing built on Playwright's `request` context:
+  - **`ApiHelper`** — thin HTTP wrapper for GET/POST/PUT/PATCH/DELETE with query params, headers, timeouts, retry-with-polling, and status predicates
+  - **Service objects** — one class per resource (e.g. `BookingApi`) with typed request/response shapes, so specs read as intent rather than raw HTTP
+  - **Managed auth** — tokens cached and minted on first use, with automatic re-auth and retry on `403`; pass an explicit token to opt out (needed for negative tests)
+  - **Fixtures** — `bookingApi` / `bookerToken` injected per test via a custom `test`
+  - **Negative-path coverage** — raw `*Response()` methods expose statuses so rejections can be asserted without the service object throwing
 - **Data-Driven Testing** — read test data from CSV, Excel (`.xlsx`), JSON, and YAML
-- **Dynamic Test Data** — realistic mock data generation with Faker
-- **Schema Validation** — JSON schema validation for API responses using Ajv
+- **Dynamic Test Data** — realistic mock data generation with Faker, plus primitives (`number`, `bool`, `dateOffset`, `oneOf`) and per-resource builders that keep randomness in one place
+- **Schema Validation** — runtime JSON Schema validation for API responses using Ajv with `ajv-formats`, reporting every violation at once with readable field paths
 - **JSONPath Querying** — extract and assert on nested JSON using `jsonpath-plus`
 - **Centralized Configuration** — environment-driven `BASE_URL` resolution (QA, staging, prod, dev, API)
 - **Structured Logging** — Winston-based logging with configurable log levels
@@ -71,12 +77,14 @@ AdvancePlaywrightFramework2x/
 │   │   │   └── flakyAnalyzer.ts    # Build-vs-build flaky test detection
 │   │   └── config/
 │   │       └── providers.ts        # LLM provider key detection
-│   ├── api/                        # API request helpers & endpoint definitions
+│   ├── api/                        # API service objects (one class per resource)
+│   │   └── BookingApi.ts           # restful-booker booking CRUD + token lifecycle
 │   ├── config/                     # Centralized configuration & environment handling
 │   │   ├── env.ts                  # dotenv helpers: requireEnv / envOr / assertEnv
 │   │   └── credentials.ts          # Credentials resolved from .env
 │   ├── fixtures/                   # Custom Playwright fixtures (test hooks, auth state)
-│   │   └── test-base.ts            # Extended `test` with page-object fixtures
+│   │   ├── test-base.ts            # Extended `test` with page-object fixtures
+│   │   └── booker.fixture.ts       # `bookingApi` + `bookerToken` API fixtures
 │   ├── pages/                      # Page Object classes (UI automation)
 │   │   ├── BasePage.ts             # Base class: navigation, logging, element helpers
 │   │   ├── LoginPage.ts            # TTACart login screen
@@ -87,8 +95,17 @@ AdvancePlaywrightFramework2x/
 │   │   ├── CheckoutStepTwoPage.ts  # Checkout overview screen
 │   │   └── CheckoutCompletePage.ts # Order confirmation screen
 │   ├── testdata/                   # Test data files (CSV, Excel, JSON, YAML)
-│   │   └── logintestdata.json      # Login test data
+│   │   ├── booking.data.ts         # Booking builders (generated / pinned dates)
+│   │   ├── logintestdata.json      # Login test data
+│   │   └── schemas/                # JSON Schemas for response validation
+│   │       └── create-booking.schema.json
 │   ├── tests/                      # Test specs (*.spec.ts)
+│   │   ├── apisTests/              # REST API specs, layered as levels 1-5
+│   │   │   ├── 01_restfulbooker_raw/       # Raw `request` calls
+│   │   │   ├── 02_restfulbooker_apiHelper/ # Via ApiHelper
+│   │   │   ├── 03_restfulbooker_fixture_e2e_api/ # Fixture-driven CRUD + negative paths
+│   │   │   ├── 04_jsonpath_plus/           # JSONPath queries
+│   │   │   └── 05_ajv_json_schema/         # JSON Schema validation
 │   │   ├── e2e/                    # End-to-end checkout specs
 │   │   │   ├── e2e-checkout.spec.ts           # Checkout flow (@P0)
 │   │   │   ├── e2e-checkout-env.spec.ts       # .env-driven checkout (@P0)
@@ -96,8 +113,10 @@ AdvancePlaywrightFramework2x/
 │   │   └── login/
 │   │       └── login.spec.ts       # TTACart login flow (@p0)
 │   └── utils/                      # Reusable utilities
+│       ├── ApiHelper.ts            # HTTP wrapper (methods, retry, status helpers)
 │       ├── CustomReporter.ts       # Real-time TTA HTML reporter
 │       ├── DataGenerator.ts        # Test data factories
+│       ├── SchemaValidator.ts      # Ajv runtime JSON Schema validation
 │       ├── UtilElementLocator.ts   # Element interaction helpers
 │       ├── visualStep.ts           # Visual step helper for reports
 │       └── logger.ts               # Winston logger (console + file)
@@ -122,8 +141,27 @@ AdvancePlaywrightFramework2x/
 - **`src/tests/`** — test specs only; keep assertions and business logic out of selectors
 - **`src/testdata/`** — externalized test inputs so tests stay data-driven
 - **`src/fixtures/`** — shared setup/teardown and reusable test fixtures
-- **`src/api/`** — API clients and endpoint wrappers for API testing
-- **`src/utils/`** — cross-cutting helpers (logging, JSON parsing, data factories)
+- **`src/api/`** — one service object per API resource (e.g. `BookingApi`); endpoints, typed payloads, and auth live here, never in specs
+- **`src/utils/`** — cross-cutting helpers (logging, JSON parsing, data factories, schema validation)
+
+### Path Aliases
+
+Imports use the aliases declared under `paths` in `tsconfig.json`, so specs never reach across the tree with `../../`:
+
+| Alias | Resolves to |
+| ----- | ----------- |
+| `@api/*` | `src/api/*` |
+| `@config/*` | `src/config/*` |
+| `@fixtures/*` | `src/fixtures/*` |
+| `@pages/*` | `src/pages/*` |
+| `@testdata/*` | `src/testdata/*` |
+| `@utils/*` | `src/utils/*` |
+
+```ts
+import { test, expect } from '@fixtures/booker.fixture';
+import { buildBooking } from '@testdata/booking.data';
+import { SchemaValidator } from '@utils/SchemaValidator';
+```
 
 ## Prerequisites
 
@@ -196,6 +234,15 @@ npx playwright test src/tests/e2e/e2e-checkout.spec.ts
 # Run the env-driven checkout spec (requires STANDARD_USER, TTA_SECRET, CHECKOUT_ITEM_ID in .env)
 npx playwright test src/tests/e2e/e2e-checkout-env.spec.ts
 
+# Run every API spec (all levels)
+npx playwright test src/tests/apisTests
+
+# Run one API level, e.g. the fixture-driven e2e CRUD suite
+npx playwright test src/tests/apisTests/03_restfulbooker_fixture_e2e_api
+
+# Smoke-check the restful-booker API is reachable
+npm run test:ping
+
 # Run with headed browser (watch the test live)
 npx playwright test --headed
 
@@ -247,6 +294,71 @@ test('login with valid credentials @p1', async ({ page }) => {
 | Trace                 | Recorded for every test                      |
 | Reporters             | HTML + List + Custom TTA Reporter           |
 | Default project       | Chromium (Desktop Chrome)                    |
+
+## API Testing
+
+API specs live under `src/tests/apisTests/` and are layered so each level adds one concept, using the public [restful-booker](https://restful-booker.herokuapp.com) API.
+
+| Level | Folder | What it demonstrates |
+| ----- | ------ | -------------------- |
+| 1 | `01_restfulbooker_raw/` | Raw `request` calls: ping, POST, isolated `newContext` headers, PUT, and a full CRUD chain |
+| 2 | `02_restfulbooker_apiHelper/` | The same calls routed through `ApiHelper` |
+| 3 | `03_restfulbooker_fixture_e2e_api/` | `BookingApi` + fixtures for a full lifecycle (create → update → read back → delete) and negative paths |
+| 4 | `04_jsonpath_plus/` | Querying responses with JSONPath — dot paths, wildcards, recursive descent, array index/slice/filter |
+| 5 | `05_ajv_json_schema/` | Validating a response against a JSON Schema with Ajv |
+
+### Service objects and auth
+
+`BookingApi` (`src/api/BookingApi.ts`) owns the endpoints and the token lifecycle:
+
+```ts
+// Managed token: minted on first use, cached, and re-minted once on a 403.
+const updated = await bookingApi.updateBooking(id, payload);
+
+// Explicit token opts out of auto-renewal — needed to assert a 403 honestly.
+const response = await bookingApi.updateBookingResponse(id, payload, 'not-a-real-token');
+expect(response.status()).toBe(403);
+```
+
+Typed methods (`createBooking`, `getBooking`, …) parse the body and **throw** on a non-2xx, so a failure can't masquerade as a `Booking`-shaped lie. The parallel `*Response()` methods return the raw `APIResponse` when you need to assert a status directly.
+
+> restful-booker does not behave the way you would guess, and the specs encode the real behaviour: a bad token is **403** (not 401), a malformed payload is **500** (not 400), and bad credentials return **200** with `{ reason: "Bad credentials" }` — so `/auth` checks the body for a token rather than trusting the status.
+
+### Fixtures
+
+`src/fixtures/booker.fixture.ts` exposes:
+
+| Fixture | Description |
+| ------- | ----------- |
+| `bookingApi` | A `BookingApi` instance bound to the test's `request` context |
+| `bookerToken` | A token from `POST /auth`, resolved before the test body |
+
+```ts
+import { test, expect } from '@fixtures/booker.fixture';
+
+test('create then delete', async ({ bookingApi, bookerToken }) => {
+  const { bookingid } = await bookingApi.createBooking(buildBookingFromGenerator());
+  expect(await bookingApi.deleteBooking(bookingid, bookerToken)).toBe(201);
+});
+```
+
+A fixture resolves once, before the test body, so it can't react to a token that expires mid-test — that recovery lives in the service object instead.
+
+### Test data
+
+`src/testdata/booking.data.ts` builds payloads from `DataGenerator`, so all randomness comes from one place. `buildBookingFromGenerator()` derives check-out from check-in (so the dates are always in order) and keeps check-in relative to today; `buildBooking()` pins check-in to a fixed date for specs that assert on a literal.
+
+### Schema validation
+
+`SchemaValidator` (`src/utils/SchemaValidator.ts`) is the **runtime** counterpart to the TypeScript interfaces — an `interface` is erased at compile time, so casting a response to one proves nothing about what the server sent:
+
+```ts
+import createBookingSchema from '@testdata/schemas/create-booking.schema.json';
+
+SchemaValidator.assertValid(createBookingSchema, body, 'POST /booking');
+```
+
+It reports **every** violation at once, with the offending field named rather than a bare `instancePath`.
 
 ## Test Reports
 
